@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consulta de CNPJ - Tabela Vertical</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        :root { --primary: #0056b3; --bg: #f4f7f6; --card-bg: #ffffff; --text: #333333; --border: #dddddd; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .container { max-width: 1100px; width: 100%; }
+        .header { text-align: center; margin-bottom: 30px; }
+        
+        .search-box { display: flex; justify-content: center; gap: 10px; margin-bottom: 30px; flex-wrap: wrap; }
+        .search-box input { padding: 12px 20px; font-size: 16px; border: 2px solid var(--border); border-radius: 8px; width: 100%; max-width: 350px; outline: none; }
+        .search-box input:focus { border-color: var(--primary); }
+        
+        .btn-consultar { padding: 12px 24px; font-size: 16px; background-color: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        .btn-consultar:hover { background-color: #004494; }
+        .btn-consultar:disabled { background-color: #999; cursor: not-allowed; }
+        
+        .btn-excel { padding: 12px 24px; font-size: 16px; background-color: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; display: none; }
+        .btn-excel:hover { background-color: #218838; }
+        
+        .status-msg, .error { text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 20px; display: none; }
+        .status-msg { color: var(--primary); }
+        .error { color: #d9534f; }
+        
+        .dashboard { display: none; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 20px; padding: 20px; background: var(--bg); border: 2px solid var(--primary); border-radius: 12px; }
+        
+        .card { background: var(--card-bg); border-radius: 12px; padding: 20px; border: 1px solid var(--border); }
+        .card h2 { margin-top: 0; font-size: 16px; color: var(--primary); border-bottom: 2px solid var(--bg); padding-bottom: 10px; margin-bottom: 15px; }
+        
+        .info-group { margin-bottom: 10px; }
+        .info-group label { display: block; font-size: 11px; color: #777; text-transform: uppercase; }
+        .info-group span { font-size: 15px; font-weight: 500; }
+        
+        .table-container { overflow-x: auto; width: 100%; }
+        table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 13px; }
+        th, td { padding: 10px 15px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+        th { background-color: var(--primary); color: white; position: sticky; top: 0; z-index: 1;}
+        tr:hover { background-color: #f1f8ff; }
+        
+        .scrollable-socios { max-height: 250px; overflow-y: auto; }
+        
+        .uf-badge { font-weight: bold; color: var(--primary); font-size: 14px; }
+        .badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; color: white; }
+        .badge.active { background-color: #28a745; }
+        .badge.inactive { background-color: #dc3545; }
+        .tipo-alvo { background-color: #e6f4ea; color: #1e8e3e; padding: 3px 6px; border-radius: 4px; font-weight: bold; font-size: 11px;}
+        .tipo-outro { background-color: #f1f3f4; color: #5f6368; padding: 3px 6px; border-radius: 4px; font-size: 11px;}
+        
+        @media (max-width: 800px) { .dashboard { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>🏢 Consulta de CNPJ</h1>
+    </div>
+
+    <div class="search-box">
+        <input type="text" id="cnpjInput" placeholder="Ex: 07.526.557/0116-59" maxlength="18">
+        <button id="btnConsultar" class="btn-consultar" onclick="consultarUnico()">Consultar</button>
+        <button id="btnExportar" class="btn-excel" onclick="exportarExcel()">📥 Exportar Excel</button>
+    </div>
+
+    <div id="statusMsg" class="status-msg">⏳ Buscando informações na Receita...</div>
+    <div id="errorMessage" class="error"></div>
+
+    <div id="dashboard" class="dashboard">
+        <div class="card">
+            <h2>Informações Cadastrais</h2>
+            <div class="info-group"><label>Razão Social</label><span id="razaoSocial">-</span></div>
+            <div class="info-group"><label>Nome Fantasia</label><span id="nomeFantasia">-</span></div>
+            <div class="info-group"><label>Status na Receita</label><span id="status">-</span></div>
+            <div class="info-group"><label>Endereço Completo</label><span id="endereco">-</span></div>
+        </div>
+
+        <div class="card">
+            <h2>Quadro Societário</h2>
+            <div class="table-container scrollable-socios">
+                <table>
+                    <thead><tr><th>Nome</th><th>Cargo</th></tr></thead>
+                    <tbody id="corpoTabelaSocios">
+                        <tr><td colspan="2" style="text-align: center;">Aguardando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card" style="grid-column: 1 / -1;">
+            <h2>Inscrições Estaduais (Válidas)</h2>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>UF</th>
+                            <th>Inscrição Estadual</th>
+                            <th>Situação</th>
+                            <th>Tipo de Inscrição</th>
+                            <th>Status Sefaz</th>
+                            <th>Atualização</th>
+                        </tr>
+                    </thead>
+                    <tbody id="corpoTabelaIE">
+                        <tr><td colspan="6" style="text-align: center;">Aguardando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const API_KEY = "667c7881-0aef-4f63-a109-6b296b94ea6f-6934c548-32ee-4a32-bc10-fead09e6dc4a";
+    const TODOS_ESTADOS = "AC,AL,AM,AP,BA,CE,DF,ES,GO,MA,MG,MS,MT,PA,PB,PE,PI,PR,RJ,RN,RO,RR,RS,SC,SE,SP,TO";
+
+    let dadosAtuais = null;
+
+    const formatarCNPJ = (cnpj) => cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+    const formatarData = (d) => d ? `${d.split('T')[0].split('-')[2]}/${d.split('T')[0].split('-')[1]}/${d.split('T')[0].split('-')[0]}` : '-';
+    const removerAcentos = (str) => str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+    async function consultarUnico() {
+        const input = document.getElementById('cnpjInput').value;
+        const cnpj = input.replace(/\D/g, ''); 
+        
+        const dashboard = document.getElementById('dashboard');
+        const statusMsg = document.getElementById('statusMsg');
+        const errorDiv = document.getElementById('errorMessage');
+        const btnExportar = document.getElementById('btnExportar');
+        const btnConsultar = document.getElementById('btnConsultar');
+
+        dashboard.style.display = 'none';
+        errorDiv.style.display = 'none';
+        btnExportar.style.display = 'none';
+        dadosAtuais = null;
+
+        if (cnpj.length !== 14) {
+            errorDiv.innerText = '⚠️ Insira um CNPJ válido com 14 dígitos.';
+            errorDiv.style.display = 'block';
+            return;
+        }
+
+        statusMsg.style.display = 'block';
+        btnConsultar.disabled = true;
+
+        const url = `https://api.cnpja.com/office/${cnpj}?registrations=${TODOS_ESTADOS}`;
+
+        try {
+            const response = await fetch(url, { method: 'GET', headers: { 'Authorization': API_KEY } });
+            if (!response.ok) throw new Error(response.status === 404 ? 'CNPJ não encontrado' : `Erro HTTP ${response.status}`);
+            
+            const data = await response.json();
+            data.cnpjFormatado = formatarCNPJ(cnpj);
+            dadosAtuais = data;
+
+            preencherTela(data);
+            
+            statusMsg.style.display = 'none';
+            dashboard.style.display = 'grid';
+            btnExportar.style.display = 'inline-block';
+
+        } catch (error) {
+            statusMsg.style.display = 'none';
+            errorDiv.innerText = `❌ ${error.message}`;
+            errorDiv.style.display = 'block';
+        } finally {
+            btnConsultar.disabled = false;
+        }
+    }
+
+    function preencherTela(data) {
+        document.getElementById('razaoSocial').innerText = data.company?.name || 'Não informado';
+        document.getElementById('nomeFantasia').innerText = data.alias || 'Não possui';
+        document.getElementById('status').innerText = data.status?.text || 'Não informado';
+        
+        let endereco = 'Endereço não informado';
+        if (data.address) {
+            const end = data.address;
+            const cep = end.zip ? end.zip.replace(/^(\d{5})(\d{3})$/, "$1-$2") : '';
+            endereco = `${end.street || ''}, ${end.number || 'S/N'} ${end.details ? '('+end.details+')' : ''} - ${end.district || ''}. ${end.city || ''}/${end.state || ''}. CEP: ${cep}`;
+        }
+        document.getElementById('endereco').innerText = endereco;
+
+        const tbodySocios = document.getElementById('corpoTabelaSocios');
+        tbodySocios.innerHTML = '';
+        const socios = data.company?.members || [];
+        if (socios.length > 0) {
+            socios.forEach(s => { 
+                tbodySocios.innerHTML += `<tr><td><strong>${s.person?.name || '-'}</strong></td><td>${s.role?.text || '-'}</td></tr>`; 
+            });
+        } else {
+            tbodySocios.innerHTML = '<tr><td colspan="2" style="text-align: center; color: #999;">Nenhum sócio encontrado.</td></tr>';
+        }
+
+        const tbodyIE = document.getElementById('corpoTabelaIE');
+        tbodyIE.innerHTML = '';
+        let iesRaw = data.registrations || [];
+        
+        // =========================================================
+        // FILTRO ANTI-NULL PARA A TELA
+        // =========================================================
+        iesRaw = iesRaw.filter(ie => ie.number && String(ie.number).trim() !== '' && String(ie.number).toLowerCase() !== 'null');
+
+        if (iesRaw.length > 0) {
+            iesRaw.sort((a, b) => a.state.localeCompare(b.state));
+            iesRaw.forEach(ie => {
+                const badge = ie.enabled ? 'badge active' : 'badge inactive';
+                const statusTexto = ie.enabled ? 'ATIVA' : 'INATIVA';
+                const tipoOrig = ie.type?.text || '-';
+                const tLimpo = removerAcentos(tipoOrig).toLowerCase();
+                const ehAlvo = tLimpo.includes('normal') || tLimpo.includes('substituto') || tLimpo.includes('outra uf') || tLimpo.includes('outro estado');
+                const cTipo = ehAlvo ? 'tipo-alvo' : 'tipo-outro';
+
+                tbodyIE.innerHTML += `
+                    <tr>
+                        <td><span class="uf-badge">${ie.state}</span></td>
+                        <td><strong>${ie.number}</strong></td>
+                        <td><span class="${badge}">${statusTexto}</span></td>
+                        <td><span class="${cTipo}">${tipoOrig}</span></td>
+                        <td>${ie.status?.text || '-'}</td>
+                        <td>${formatarData(ie.statusDate)}</td>
+                    </tr>
+                `;
+            });
+        } else {
+            tbodyIE.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #999;">Nenhuma Inscrição Estadual válida encontrada.</td></tr>';
+        }
+    }
+
+    function exportarExcel() {
+        if (!dadosAtuais) return;
+
+        const data = dadosAtuais;
+        const razaoSocial = data.company?.name || 'Não informado';
+        
+        let enderecoCompleto = 'Não informado';
+        if (data.address) {
+            const end = data.address;
+            const cep = end.zip ? end.zip.replace(/^(\d{5})(\d{3})$/, "$1-$2") : '';
+            enderecoCompleto = `${end.street || ''}, ${end.number || 'S/N'} - ${end.district || ''}. ${end.city || ''}/${end.state || ''}. CEP: ${cep}`;
+        }
+
+        const linhasExcel = [];
+
+        linhasExcel.push(["INFORMAÇÕES CADASTRAIS"]);
+        linhasExcel.push(["CNPJ", "Razão Social", "Nome Fantasia", "Status", "Endereço Completo"]);
+        linhasExcel.push([
+            data.cnpjFormatado, 
+            razaoSocial, 
+            data.alias || '-', 
+            data.status?.text || '-', 
+            enderecoCompleto
+        ]);
+        linhasExcel.push([]); 
+
+        linhasExcel.push(["QUADRO SOCIETÁRIO"]);
+        linhasExcel.push(["Nome do Sócio/Diretor", "Cargo"]);
+        const socios = data.company?.members || [];
+        if (socios.length > 0) {
+            socios.forEach(s => {
+                linhasExcel.push([s.person?.name || '-', s.role?.text || '-']);
+            });
+        } else {
+            linhasExcel.push(["Nenhum sócio encontrado.", "-"]);
+        }
+        linhasExcel.push([]); 
+
+        linhasExcel.push(["INSCRIÇÕES ESTADUAIS (VÁLIDAS)"]);
+        linhasExcel.push(["UF", "Inscrição Estadual", "Situação", "Tipo de Inscrição", "Status na Sefaz", "Data do Status"]);
+        
+        let ies = data.registrations || [];
+        
+        // =========================================================
+        // FILTRO ANTI-NULL PARA O EXCEL
+        // =========================================================
+        ies = ies.filter(ie => ie.number && String(ie.number).trim() !== '' && String(ie.number).toLowerCase() !== 'null');
+
+        if (ies.length > 0) {
+            ies.sort((a, b) => a.state.localeCompare(b.state)); 
+            ies.forEach(ie => {
+                linhasExcel.push([
+                    ie.state,
+                    ie.number,
+                    ie.enabled ? 'ATIVA' : 'INATIVA',
+                    ie.type?.text || '-',
+                    ie.status?.text || '-',
+                    formatarData(ie.statusDate)
+                ]);
+            });
+        } else {
+            linhasExcel.push(["Nenhuma Inscrição Estadual válida encontrada.", "-", "-", "-", "-", "-"]);
+        }
+
+        const ws = XLSX.utils.aoa_to_sheet(linhasExcel);
+        const wb = XLSX.utils.book_new();
+        
+        ws['!cols'] = [
+            { wch: 35 }, { wch: 40 }, { wch: 25 }, { wch: 25 }, { wch: 50 }, { wch: 20 }
+        ];
+
+        XLSX.utils.book_append_sheet(wb, ws, "Relatório Completo");
+        XLSX.writeFile(wb, `Consulta_CNPJ_${data.cnpjFormatado.replace(/\D/g, '')}.xlsx`);
+    }
+</script>
+</body>
+</html>
